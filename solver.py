@@ -29,6 +29,7 @@ class Reference(object):
     __str__ = __repr__
 
 class Distribution(object):
+    # REFACT consider to ask the distribution for partial distributions perhaps by creating one on the fly?
     
     @classmethod
     def independent(cls, **kwargs):
@@ -97,6 +98,7 @@ class Distribution(object):
         for reference in self._labels:
             setattr(self, reference.name, reference)
     
+    # REFACT consider to ignore all keys which do not apply
     def __getitem__(self, key_or_keys):
         keys = self._normalize_keys(key_or_keys)
         self._assert_keys_are_sufficient(keys)
@@ -139,11 +141,40 @@ class BayesianNetwork(object):
                 self.__tables[name] = table
         return self.__tables
     
-    def probability(self, *for_, given=()):
-        result = 1
+    def probability_of_event(self, *atomic_event):
+        probability = 1
+        # REFACT rename table -> distributions
         for table in self._tables().values():
-            result *= table[table._suitable_subset_of(keys=for_)]
-        return result
+            probability *= table[table._suitable_subset_of(keys=atomic_event)]
+        return probability
+    
+    # REFACT not sure this is the right name for this?
+    def joint_probability(self, *givens): # REFACT rename events -> givens
+        probability = 0
+        by_table = self._events_by_table(self._sure_event()) # REFACT rename _sure_event -> _all_events
+        for event in givens:
+            by_table[event.table] = [event]
+        # dict(intelligence = [intelligence.low], difficulty=$alle, ...)
+        for atomic_event in itertools.product(*by_table.values()):
+            probability += self.probability_of_event(*atomic_event)
+        return probability
+    
+    def conditional_probability(self, *events, given):
+        return self.joint_probability(*events, *given) / self.joint_probability(*given)
+    
+    def _sure_event(self):
+        return set(flatten(map(attrgetter('_labels'), n._tables().values())))
+    
+    def _events_by_table(self, events):
+        key = lambda reference: id(reference.table)
+        grouped_iterator = itertools.groupby(
+            sorted(events, key=lambda reference: id(reference.table)),
+            key=lambda x: x.table
+        )
+        by_table = dict()
+        for table, events in grouped_iterator:
+            by_table[table] = tuple(events)
+        return by_table
 
 class Student(BayesianNetwork):
     d = difficulty = Distribution.independent(easy=.6, hard=.4)
@@ -157,9 +188,9 @@ class Student(BayesianNetwork):
     g = grade = Distribution.dependent(
                           ('good', 'ok', 'bad'), {
         (i.low, d.easy):   (.3,     .4,   .3),
-        (i.low, d.hard):  (.05,    .25,  .7),
+        (i.low, d.hard):   (.05,    .25,  .7),
         (i.high, d.easy):  (.9,     .08,  .02),
-        (i.high, d.hard): (.5,     .3,   .2),
+        (i.high, d.hard):  (.5,     .3,   .2),
     })
     l = letter = Distribution.dependent(
                 ('bad', 'glowing'), {
@@ -169,6 +200,10 @@ class Student(BayesianNetwork):
     })
 
 n = network = Student()
+
+# print(n.i)
+# print(n.i.low)
+# print(n.s)
 
 expect(n.intelligence[n.i.high]) == .3
 expect(n.difficulty[n.d.easy]) == .6
@@ -180,10 +215,31 @@ expect(n.letter[n.l.bad, n.g.ok]) == .4
 #
 # print(n.sat.bad, n.intelligence.low, n.sat[n.s.bad, n.i.low])
 #
-# print(n.intelligence.low, n.difficulty.easy, n.grade.good, n.g[n.i.low, n.d.easy, n.g.good])
-# print(n.intelligence.low, n.difficulty.easy, n.grade.good, n.g[n.i.low, n.g.good, n.d.easy])
+print(n.intelligence.low, n.difficulty.easy, n.grade.good, n.g[n.i.low, n.d.easy, n.g.good])
+print(n.intelligence.low, n.difficulty.easy, n.grade.good, n.g[n.i.low, n.g.good, n.d.easy])
 #
 # print(n.letter.bad, n.grade.good, n.l[n.l.bad, n.g.good])
 
-expect(network.probability(n.i.high, n.d.easy, n.g.ok, n.l.bad, n.s.good)) == 0.004608
-expect
+expect(n.probability_of_event(n.i.high, n.d.easy, n.g.ok, n.l.bad, n.s.good)) == 0.004608
+expect(n.joint_probability()).close_to(1, 1e-6)
+expect(n.joint_probability(n.l.glowing)).close_to(.502, 1e-3)
+
+expect(n.conditional_probability(n.l.glowing, given=(n.i.low,))).close_to(.38, 1e-2)
+expect(n.conditional_probability(n.l.glowing, given=(n.i.low, n.d.easy))).close_to(.513, 1e-2)
+expect(n.conditional_probability(n.i.high, given=(n.g.good,))).close_to(.613, 1e-2)
+expect(n.conditional_probability(n.i.high, given=(n.g.good, n.d.easy))).close_to(.5625, 1e-4)
+
+# print('P(d0 | g1)', conditional_probability('difficulties', ['d0'], grades=['g1']))
+# P(d0 | g1) 0.7955801104972375
+# print('P(d0 | g1, i1)', conditional_probability('difficulties', ['d0'], grades=['g1'], intelligences=['i1']))
+# P(d0 | g1, i1) 0.7297297297297298
+#
+#
+# print('P(i1 | g3)', conditional_probability('intelligences', ['i1'], grades=['g3']))
+# P(i1 | g3) 0.07894736842105264
+# print('P(i1 | g3, d1)', conditional_probability('intelligences', ['i1'], grades=['g3'], difficulties=['d1']))
+# P(i1 | g3, d1) 0.10909090909090914
+# print('P(d1 | g3)', conditional_probability('difficulties', ['d1'], grades=['g3']))
+# P(d1 | g3) 0.6292906178489701
+# print('P(d1 | g3, i1)', conditional_probability('difficulties', ['d1'], grades=['g3'], intelligences=['i1']))
+# P(d1 | g3, i1) 0.8695652173913044
