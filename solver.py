@@ -142,7 +142,6 @@ class BayesianNetwork(object):
     def probability(self, *for_, given=()):
         result = 1
         for table in self._tables().values():
-            print(table._name, tuple(table._suitable_subset_of(keys=for_)), table[table._suitable_subset_of(keys=for_)])
             result *= table[table._suitable_subset_of(keys=for_)]
         return result
 
@@ -171,9 +170,11 @@ class Student(BayesianNetwork):
 
 n = network = Student()
 
-expect(n.i[n.i.high]) == .3
-expect(n.d[n.d.easy]) == .6
-expect(n.g[n.g.good, n.i.high, n.d.easy]) == .08, 
+expect(n.intelligence[n.i.high]) == .3
+expect(n.difficulty[n.d.easy]) == .6
+expect(n.grade[n.g.ok, n.i.high, n.d.easy]) == .08, 
+expect(n.letter[n.l.bad, n.g.ok]) == .4
+
 # print(n.intelligence.low, n.i[n.i.low])
 # print(n.difficulty.easy, n.d[n.d.easy])
 #
@@ -184,7 +185,5 @@ expect(n.g[n.g.good, n.i.high, n.d.easy]) == .08,
 #
 # print(n.letter.bad, n.grade.good, n.l[n.l.bad, n.g.good])
 
-def P(*event, expected):
-    print('P%s = %s (expected: %s)' % (event, network.probability(*event), expected))
-P(n.i.high, n.d.easy, n.g.good, n.l.bad, n.s.good, expected=0.004608)
-# print('i1, d0, g2, l0, s1', probability('i1', 'd0', 'g2', 'l0', 's1'), 'should be', 0.004608)
+expect(network.probability(n.i.high, n.d.easy, n.g.ok, n.l.bad, n.s.good)) == 0.004608
+expect
