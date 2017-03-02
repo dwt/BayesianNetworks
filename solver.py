@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import typing, itertools
+from pyexpect import expect
+import itertools
 from operator import attrgetter
 
 flatten = itertools.chain.from_iterable
@@ -27,7 +28,7 @@ class Reference(object):
         return '%s.%s' % (self.table._name, self.name)
     __str__ = __repr__
 
-class ProbabilityTable(object):
+class Distribution(object):
     
     @classmethod
     def independent(cls, **kwargs):
@@ -70,7 +71,7 @@ class ProbabilityTable(object):
         values = dict()
         for keys, probabilities in zip(references, probability_rows):
             assert_almost_sums_to_one(probabilities)
-            for self_key, value in zip(labels, probability_rows):
+            for self_key, value in zip(labels, probabilities):
                 values[keys + (self_key, )] = value
         
         cross_product_of_dependencies_keys = set(map(frozenset, itertools.product(*map(attrgetter('_labels'), dependencies))))
@@ -88,6 +89,7 @@ class ProbabilityTable(object):
         self._dependencies = dependencies
         self._values = dict()
         
+        assert all(map(lambda x: isinstance(x, float), values.values())), 'Need all probabilities to be floats'
         self._values = { self._normalize_keys(key): value for key, value in values.items()}
     
     def _set_references(self, labels):
@@ -108,18 +110,17 @@ class ProbabilityTable(object):
         return frozenset(map(to_reference, keys))
     
     def _assert_keys_are_sufficient(self, keys):
-        print(tuple(self._values.keys())[0], keys)
         assert len(tuple(self._values.keys())[0]) == len(keys), 'Need the full set of keys to get a probability'
         assert any(filter(lambda x: x.table == self, keys)), 'Does not contain key to self'
     
     def __repr__(self):
         display_values = ', '.join(['%r: %s' % (set(key), value) for key, value in self._values.items()])
-        name = self._name if self._name is not None else 'ProbabilityTable'
+        name = self._name if self._name is not None else 'Distribution'
         return '%s(%s)' % (name, display_values)
     __str__ = __repr__
     
-    def _suitable_key_subset(self, keys):
-        return filter(lambda key: key == self or key in self._dependencies, keys)
+    def _suitable_subset_of(self, keys):
+        return filter(lambda key: key.table == self or key.table in self._dependencies, keys)
 
 class BayesianNetwork(object):
     
@@ -129,7 +130,7 @@ class BayesianNetwork(object):
             table._name = name
     
     def _tables(self):
-        # would be a desaster if ProbabilityTable's are added after construction - but that is currently
+        # would be a desaster if Distribution's are added after construction - but that is currently
         # prevented by design
         if not hasattr(self, '__tables'):
             self.__tables = dict()
@@ -141,27 +142,27 @@ class BayesianNetwork(object):
     def probability(self, *for_, given=()):
         result = 1
         for table in self._tables().values():
-            print(table, for_, list(table._suitable_key_subset(for_)))
-            result * table[table._suitable_key_subset(for_)]
+            print(table._name, tuple(table._suitable_subset_of(keys=for_)), table[table._suitable_subset_of(keys=for_)])
+            result *= table[table._suitable_subset_of(keys=for_)]
         return result
 
 class Student(BayesianNetwork):
-    i = intelligence = ProbabilityTable.independent(low=.7, high=.3)
-    d = difficulty = ProbabilityTable.independent(low=.6, high=.4)
+    d = difficulty = Distribution.independent(easy=.6, hard=.4)
+    i = intelligence = Distribution.independent(low=.7, high=.3)
     
-    s = sat = ProbabilityTable.dependent(
+    s = sat = Distribution.dependent(
                 ('bad', 'good'), {
         i.low:  (.95,   .05),
         i.high: (.2,    .8)
     })
-    g = grade = ProbabilityTable.dependent(
+    g = grade = Distribution.dependent(
                           ('good', 'ok', 'bad'), {
-        (i.low, d.low):   (.3,     .4,   .3),
-        (i.low, d.high):  (.05,    .25,  .7),
-        (i.high, d.low):  (.9,     .08,  .02),
-        (i.high, d.high): (.5,     .3,   .2),
+        (i.low, d.easy):   (.3,     .4,   .3),
+        (i.low, d.hard):  (.05,    .25,  .7),
+        (i.high, d.easy):  (.9,     .08,  .02),
+        (i.high, d.hard): (.5,     .3,   .2),
     })
-    l = letter = ProbabilityTable.dependent(
+    l = letter = Distribution.dependent(
                 ('bad', 'glowing'), {
         g.good: (.1,    .9),
         g.ok:   (.4,    .6),
@@ -169,15 +170,21 @@ class Student(BayesianNetwork):
     })
 
 n = network = Student()
+
+expect(n.i[n.i.high]) == .3
+expect(n.d[n.d.easy]) == .6
+expect(n.g[n.g.good, n.i.high, n.d.easy]) == .08, 
 # print(n.intelligence.low, n.i[n.i.low])
-# print(n.difficulty.low, n.d[n.d.low])
+# print(n.difficulty.easy, n.d[n.d.easy])
 #
 # print(n.sat.bad, n.intelligence.low, n.sat[n.s.bad, n.i.low])
 #
-# print(n.intelligence.low, n.difficulty.low, n.grade.good, n.g[n.i.low, n.d.low, n.g.good])
-# print(n.intelligence.low, n.difficulty.low, n.grade.good, n.g[n.i.low, n.g.good, n.d.low])
+# print(n.intelligence.low, n.difficulty.easy, n.grade.good, n.g[n.i.low, n.d.easy, n.g.good])
+# print(n.intelligence.low, n.difficulty.easy, n.grade.good, n.g[n.i.low, n.g.good, n.d.easy])
 #
 # print(n.letter.bad, n.grade.good, n.l[n.l.bad, n.g.good])
-#
-n.probability(n.i.low, n.d.low, n.s.bad, n.g.good, n.l.glowing)
+
+def P(*event, expected):
+    print('P%s = %s (expected: %s)' % (event, network.probability(*event), expected))
+P(n.i.high, n.d.easy, n.g.good, n.l.bad, n.s.good, expected=0.004608)
 # print('i1, d0, g2, l0, s1', probability('i1', 'd0', 'g2', 'l0', 's1'), 'should be', 0.004608)
