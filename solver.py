@@ -4,6 +4,7 @@
 from pyexpect import expect
 import itertools
 from operator import attrgetter
+from fluent import *
 
 flatten = itertools.chain.from_iterable
 
@@ -38,36 +39,24 @@ class Distribution(object):
     
     @classmethod
     def dependent(cls, labels, dependent_values):
-        references, probability_rows = tuple(dependent_values.keys()), tuple(dependent_values.values())
+        references = tuple(dependent_values.keys())
+        probability_rows = tuple(dependent_values.values())
         
-        assert len(labels) == len(probability_rows[0]), 'Need one label for each probability %r, %r' % (labels, probability_rows[0])
-        assert len(set(map(len, probability_rows))) == 1,\
+        assert _(probability_rows).map(len).call(set).len() == 1,\
             'Need the same number of probabilites for each row'
         
-        
         if isinstance(references[0], Reference): # single dependency table
-            assert all([isinstance(reference, Reference) for reference in references]),\
-                'Needs consistent numbers of references to other tables.'
-            
             # normalize structure
             references = tuple((reference, ) for reference in references)
         
-        for reference in references:
-            assert len(set(map(attrgetter('table'), reference))) == len(reference), \
-                'All references for a row need to point to different tables'
-            
-        key = lambda reference: id(reference.table)
-        by_table = itertools.groupby(
-            sorted(flatten(references), key=lambda reference: id(reference.table)),
-            key=lambda x: x.table
-        )
+        by_table = _(references) \
+            .flatten() \
+            .sorted(key=lambda reference: id(reference.table)) \
+            .groupby(key=lambda x: x.table)
+        
         dependencies = []
         for table, keys in by_table:
             dependencies.append(table)
-            keys = set(keys) # consume group
-            assert keys == set(table._labels), \
-                'Missing keys of table %s, only have %s, expecting %s' \
-                % (table, keys, set(table._labels))
         
         values = dict()
         for keys, probabilities in zip(references, probability_rows):
@@ -75,8 +64,13 @@ class Distribution(object):
             for self_key, value in zip(labels, probabilities):
                 values[keys + (self_key, )] = value
         
-        cross_product_of_dependencies_keys = set(map(frozenset, itertools.product(*map(attrgetter('_labels'), dependencies))))
-        assert set(map(frozenset, references)) == cross_product_of_dependencies_keys, \
+        cross_product_of_dependencies_keys = _(dependencies) \
+            .map(attrgetter('_labels')) \
+            .star_call(itertools.product) \
+            .map(frozenset) \
+            .call(set)
+        
+        assert _(references).map(frozenset).call(set) == cross_product_of_dependencies_keys, \
             "References to other tables need to be a full product of their labels. Expected %r, \nbut got %r" \
             % (set(references), cross_product_of_dependencies_keys)
         
@@ -90,11 +84,11 @@ class Distribution(object):
         self._dependencies = dependencies
         self._values = dict()
         
-        assert all(map(lambda x: isinstance(x, float), values.values())), 'Need all probabilities to be floats'
-        self._values = { self._normalize_keys(key): value for key, value in values.items()}
+        assert _(values.values()).map(lambda x: isinstance(x, float)).all(), 'Need all probabilities to be floats'
+        self._values = { self._normalize_keys(key): value for key, value in values.items() }
     
     def _set_references(self, labels):
-        self._labels = tuple(map(lambda key: Reference(key, self), labels))
+        self._labels = _(labels).map(lambda key: Reference(key, self))
         for reference in self._labels:
             setattr(self, reference.name, reference)
     
