@@ -49,14 +49,10 @@ class Distribution(object):
             # normalize structure
             references = tuple((reference, ) for reference in references)
         
-        by_table = _(references) \
-            .flatten() \
-            .sorted(key=lambda reference: id(reference.table)) \
-            .groupby(key=lambda x: x.table)
-        
-        dependencies = []
-        for table, keys in by_table:
-            dependencies.append(table)
+        dependencies = _(references) \
+            .iflatten() \
+            .imap(lambda x: x.table) \
+            .call(set).call(tuple)
         
         values = dict()
         for keys, probabilities in zip(references, probability_rows):
@@ -65,9 +61,9 @@ class Distribution(object):
                 values[keys + (self_key, )] = value
         
         cross_product_of_dependencies_keys = _(dependencies) \
-            .map(attrgetter('_labels')) \
+            .imap(attrgetter('_labels')) \
             .star_call(itertools.product) \
-            .map(frozenset) \
+            .imap(frozenset) \
             .call(set)
         
         assert _(references).map(frozenset).call(set) == cross_product_of_dependencies_keys, \
@@ -160,14 +156,12 @@ class BayesianNetwork(object):
         return set(flatten(map(attrgetter('_labels'), n._tables().values())))
     
     def _events_by_table(self, events):
-        key = lambda reference: id(reference.table)
-        grouped_iterator = itertools.groupby(
-            sorted(events, key=lambda reference: id(reference.table)),
-            key=lambda x: x.table
-        )
+        grouped_iterator = _(events) \
+            .isorted(key=lambda reference: id(reference.table)) \
+            .groupby(key=lambda x: x.table)
         by_table = dict()
         for table, events in grouped_iterator:
-            by_table[table] = tuple(events)
+            by_table[table] = events
         return by_table
 
 class Student(BayesianNetwork):
