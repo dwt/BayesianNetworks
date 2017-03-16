@@ -6,12 +6,6 @@ import itertools
 from operator import attrgetter
 from fluent import *
 
-flatten = itertools.chain.from_iterable
-
-def grouped(iterable, n):
-    "s -> (s0,s1,s2,...sn-1), (sn,sn+1,sn+2,...s2n-1), (s2n,s2n+1,s2n+2,...s3n-1), ..."
-    return zip(*[iter(iterable)]*n)
-
 def assert_almost_sums_to_one(probabilities):
     epsilon = .00000001
     assert abs(1 - sum(probabilities)) < epsilon, 'Probability tables need to sum to (almost) 1'
@@ -153,7 +147,7 @@ class BayesianNetwork(object):
         return self.joint_probability(*events, *given) / self.joint_probability(*given)
     
     def _sure_event(self):
-        return set(flatten(map(attrgetter('_labels'), n._tables().values())))
+        return _(self._tables().values()).map(attrgetter('_labels')).flatten().call(set)
     
     def _events_by_table(self, events):
         grouped_iterator = _(events) \
